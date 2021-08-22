@@ -1,21 +1,20 @@
 #### File Information #####################################################################################################################
-#File Name: coxPH_KP.R
+#File Name: GBMCox.R
 #Date Created: May 26, 2018
-#Author: Humza Haider
-#Email: hshaider@ualberta.ca
+#Author: Li-Hao Kuan
+#Email: lihao@ualberta.ca
+#Modyfied from Models/CoxPH_KP.R by Humza Haider
 
 ### General Comments ######################################################################################################################
-#This file is used to run the Cox proportional hazards model and then use the  Kalbfleisch-Prentice method to attain survival probabilities.
-#Additionally, the elastic net cox is also implemented here.
+#This file is used to run the Cox proportional hazards model with gradien boosting.
 
 ### Functions #############################################################################################################################
 
-## Function 1: CoxPH_KP(training, testing,ElasticNet =F, numFolds =5)
+## Function 1: GBMCox_KP(training, testing,ElasticNet =F, numFolds =5)
 
 #Inputs:
 #   training:   The training dataset (after normalization and imputation).
 #   testing:    The testing dataset (after normalization and imputation).
-#   ElasticNet: Boolean indicating to use or not use elastic net cox.
 #   numFolds:   Number of folds for internal cross validation (elastic-net cox only).
 
 # Output: A list of 4 items:(1) TestCurves - The survival curves for the testing set.
@@ -23,7 +22,7 @@
 #                           (3) TrainData - The censor/death indicator and event time for the training set. 
 #                           (4) TrainCurves - The survival curves for the training set.
 
-# Usage: Train and evaluate the Cox-KP/CoxEN-KP model.
+# Usage: Train and evaluate the GBMCox model.
 
 ## Function 2: KPEstimator(lp,lpTime,censorStatus){
 
@@ -34,9 +33,6 @@
 
 # Output: The baseline survival function via the kalbfleisch-prentice estimator.
 
-# Usage: This will build the baseline survival function for patients (because cox only considers hazards we need to use a method
-#         of estimating the baseline survival function). (Helpher function for CoxPH_KP).
-
 ### Code #############################################################################################################################
 #Library Dependencies:
 #survival is needed to get survfit and the implimentation of the KP estimator.
@@ -46,60 +42,38 @@ library(fastcox)
 #For sindex
 library(prodlim)
 
-CoxPH_KP = function(training, testing,ElasticNet=F, numFolds = 5){
-  if(ElasticNet){
-    timeInd = which(names(training) == "time")
-    deltaInd = which(names(training) == "delta")
-    alpha = NULL
-    lambda = NULL
-    bestError = Inf
-    #Try 6 values for alpha and then do repeated (10 times) k-fold cross validation for selecting best hyper parameters.
-    for(a in c(0.01,.2,.4,.6,.8,1)){
-      errors = NULL
-      #Taken from https://stats.stackexchange.com/questions/97777/variablity-in-cv-glmnet-results
-      for(i in 1:10){
-        model =  cv.cocktail(as.matrix(training[,-c(timeInd, deltaInd)]),training[,timeInd], training[,deltaInd],
-                             alpha = a,nfolds = numFolds)
-        errors = cbind(errors, model$cvm)
-      }
-      rownames(errors) <- model$lambda
-      avgErrors = rowMeans(errors)
-      lambda.min <- as.numeric(names(which.min(avgErrors)))
-      modelError = min(avgErrors)
-      if(modelError < bestError){
-        alpha = a
-        lambda = lambda.min
-        bestError = modelError
-      }
-    }
-    sprintf("Chosen alpha: %.5f, chosen lambda: %.5f", a, lambda)
-    coxModel = cocktail(as.matrix(training[,-c(timeInd, deltaInd)]),training[,timeInd], training[,deltaInd],alpha = alpha,lambda = lambda)
-    linearPredictionsTraining = predict(coxModel,as.matrix(training[,-c(timeInd, deltaInd)]),type = "link")
-    linearPredictionsTesting = predict(coxModel,as.matrix(testing[,-c(timeInd, deltaInd)]),type = "link")
-    survivalEstimate = KPEstimator(linearPredictionsTraining, training$time,training$delta)
-    survCurvs = t(sapply(survivalEstimate[[2]], function(x) x^exp(linearPredictionsTesting)))
-    survCurvsTraining = t(sapply(survivalEstimate[[2]], function(x) x^exp(linearPredictionsTraining)))
-    
-    survivalCurves = list(time = survivalEstimate[[1]], surv = survCurvs)
-    survivalCurvesTrain = list(time = survivalEstimate[[1]], surv = survCurvsTraining)
-    
-  }
-  else{
-    #Sometimes the coxPH-KP failed to converge so we catch that here.
-    tryCatch({
-      coxModel = coxph(Surv(time,delta)~., data = training,singular.ok = T)
-      survivalCurves = survfit(coxModel, testing, type = "kalbfleisch-prentice")
-      survivalCurvesTrain = survfit(coxModel, training, type = "kalbfleisch-prentice")
-      
-    },
-    error = function(e) {
-      message(e)
-      warning("Cox-PH failed to converge.")
-    })
-    if(!exists("coxModel") | !exists("survivalCurves")){
-      return(NA)
-    }
-  }
+library(gbm)
+#source("Models/gbm.R")
+
+GBMCox_KP = function(training, testing, numFolds = 5){
+  print('Gradien boost')
+  timeInd = which(names(training) == "time")
+  deltaInd = which(names(training) == "delta")
+
+  coxModel = gbm(Surv(time,delta)~.,       # formula
+                 data=training,                 # dataset
+                 #weights=w,
+                 #var.monotone=c(0,0,0),     # -1: monotone decrease, +1: monotone increase, 0: no monotone restrictions
+                 distribution="coxph",
+                 n.trees=3000,              # number of trees
+                 shrinkage=0.001,           # shrinkage or learning rate, 0.001 to 0.1 usually work
+                 interaction.depth=3,       # 1: additive model, 2: two-way interactions, etc
+                 bag.fraction = 0.5,        # subsampling fraction, 0.5 is probably best
+                 train.fraction = 1,      # fraction of data for training, first train.fraction*N used for training
+                 cv.folds = 5,              # do 5-fold cross-validation
+                 n.minobsinnode = 10,       # minimum total weight needed in each node
+                 keep.data = TRUE,
+                 verbose = FALSE)
+  best.iter <- gbm.perf(coxModel,method='cv')
+  
+  linearPredictionsTraining = predict(coxModel,training[,-c(timeInd, deltaInd)],best.iter)
+  linearPredictionsTesting = predict(coxModel,testing[,-c(timeInd, deltaInd)],best.iter)
+  survivalEstimate = KPEstimator(linearPredictionsTraining, training$time,training$delta)
+  survCurvs = t(sapply(survivalEstimate[[2]], function(x) x^exp(linearPredictionsTesting)))
+  survCurvsTraining = t(sapply(survivalEstimate[[2]], function(x) x^exp(linearPredictionsTraining)))
+  
+  survivalCurves = list(time = survivalEstimate[[1]], surv = survCurvs)
+  survivalCurvesTrain = list(time = survivalEstimate[[1]], surv = survCurvsTraining)
   #If 0 wasnt included in the timepoints we would like to manually add it with a survival probability of 1.
   if(0 %in% survivalCurves$time){
     timePoints = survivalCurves$time

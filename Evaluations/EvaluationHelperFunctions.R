@@ -90,6 +90,10 @@ predictMedianSurvivalTimeSpline = function(survivalCurve, predictedTimes){
   }
   spline = splinefun(predictedTimes, survivalCurve, method = "hyman")
   minProb = min(spline(predictedTimes))
+  if(is.na(minProb)){
+    warning('Minimum probability is NA.')
+    return(0)
+  }
   if(minProb < .5){
     maximumSmallerThanMedian = predictedTimes[min(which(survivalCurve <.5))]
     minimumGreaterThanMedian = predictedTimes[max(which(survivalCurve >.5))]
