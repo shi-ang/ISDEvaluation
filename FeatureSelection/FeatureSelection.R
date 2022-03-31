@@ -35,13 +35,24 @@
 #Library Dependencies:
 #We use caret for the dummyVars function.
 library(caret)
-FeatureSelection = function(dataset, type ="UniCox", obs_thresh = 0, pThresh = 0.1){
+library(base)
+library(survival) # Use survival for coxph function.
+library(survcomp) # For mrmr
+
+FeatureSelection = function(dataset, type ="mrmr", obs_thresh = 0, pThresh = 0.1){
   selectedData = switch(type,
                         UniCox = {
                          oneHotEncoder = dummyVars("~.",data = dataset, fullRank = T)
                          toSelect = as.data.frame(predict(oneHotEncoder, dataset))
                          names(toSelect) = make.names(names(toSelect), unique = T)
                          uniCox(toSelect, obs_thresh, pThresh)
+                        },
+                        mrmr = {
+                          oneHotEncoder = dummyVars("~.",data = dataset, fullRank = T)
+                          toSelect = as.data.frame(predict(oneHotEncoder, dataset))
+                          names(toSelect) = make.names(names(toSelect), unique = T)
+                          print("Before mrmr")
+                          mrmr_fs(toSelect, obs_thresh)
                         }
   )
 }
@@ -93,7 +104,7 @@ uniCox <- function(dataset, obs_thresh, pThresh){
       min_var <- var_name
     }
     
-    if (!is.nan(pValue) && pValue < 0.1 & !is.na(pValue)){
+    if (!is.nan(pValue) && pValue < pThresh & !is.na(pValue)){
       chosen_vars <- c(chosen_vars, var_name)
     }
   }
@@ -102,5 +113,16 @@ uniCox <- function(dataset, obs_thresh, pThresh){
     chosen_vars <- c(min_var)
   }
   chosenVarIndex = which(names(dataset) %in% c("time","delta",chosen_vars))
+  return (dataset[,chosenVarIndex])
+}
+
+mrmr_fs <- function (dataset, num_feature = 10){
+  # x = subset.data.frame(data, select= - c(time, delta))
+  var_names = names(dataset)[-which(names(dataset) %in% c("time","delta"))]
+  x = dataset[var_names]
+  features_order = mrmr.cindex(x, surv.time=dataset$time, surv.event=dataset$delta)
+  feature_order_df = data.frame(sort(abs(features_order)))
+  chosenVarIndex = which(names(dataset) %in% c("time","delta",
+                                               rownames(feature_order_df)[1:num_feature]))
   return (dataset[,chosenVarIndex])
 }
