@@ -51,7 +51,7 @@ FeatureSelection = function(dataset, type ="mrmr", obs_thresh = 0, pThresh = 0.1
                           oneHotEncoder = dummyVars("~.",data = dataset, fullRank = T)
                           toSelect = as.data.frame(predict(oneHotEncoder, dataset))
                           names(toSelect) = make.names(names(toSelect), unique = T)
-                          print("Before mrmr")
+                          print("Before mrmr, this is r console")
                           mrmr_fs(toSelect, obs_thresh)
                         }
   )
@@ -121,7 +121,7 @@ mrmr_fs <- function (dataset, num_feature = 10){
   var_names = names(dataset)[-which(names(dataset) %in% c("time","delta"))]
   x = dataset[var_names]
   features_order = mrmr.cindex(x, surv.time=dataset$time, surv.event=dataset$delta)
-  feature_order_df = data.frame(sort(abs(features_order)))
+  feature_order_df = data.frame(sort(abs(features_order), decreasing = FALSE))
   chosenVarIndex = which(names(dataset) %in% c("time","delta",
                                                rownames(feature_order_df)[1:num_feature]))
   return (dataset[,chosenVarIndex])
