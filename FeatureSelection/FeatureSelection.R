@@ -121,8 +121,9 @@ mrmr_fs <- function (dataset, num_feature = 10){
   var_names = names(dataset)[-which(names(dataset) %in% c("time","delta"))]
   x = dataset[var_names]
   features_order = mrmr.cindex(x, surv.time=dataset$time, surv.event=dataset$delta)
-  feature_order_df = data.frame(sort(abs(features_order), decreasing = FALSE))
+  feature_order_df = data.frame(sort(abs(features_order), decreasing = TRUE))
   chosenVarIndex = which(names(dataset) %in% c("time","delta",
                                                rownames(feature_order_df)[1:num_feature]))
+  print(rownames(feature_order_df)[1:num_feature])
   return (dataset[,chosenVarIndex])
 }
